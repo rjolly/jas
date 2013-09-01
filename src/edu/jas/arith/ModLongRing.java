@@ -103,7 +103,7 @@ public final class ModLongRing implements ModularRingFactory<ModLong>, Iterable<
      */
     public ModLongRing(java.math.BigInteger m) {
         this(m.longValue());
-        if (MAX_LONG.compareTo(m) <= 0) { // m >= max
+        if (MAX_LONG.compareTo(m) < 0) { // m > max
             System.out.println("modul to large for long " + m + ",max=" + MAX_LONG);
             throw new IllegalArgumentException("modul to large for long " + m);
         }
