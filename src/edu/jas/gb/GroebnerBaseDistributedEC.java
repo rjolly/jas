@@ -134,7 +134,7 @@ public class GroebnerBaseDistributedEC<C extends RingElem<C>> extends GroebnerBa
      * @param port server port to use.
      */
     public GroebnerBaseDistributedEC(String mfile, int threads, ThreadPool pool, int port) {
-        this(mfile, threads, pool, new OrderedSyzPairlist<C>(), port);
+        this(mfile, threads, pool, new OrderedPairlist<C>(), port);
     }
 
 
@@ -275,10 +275,10 @@ public class GroebnerBaseDistributedEC<C extends RingElem<C>> extends GroebnerBa
                 l--;
             }
         }
+        logger.info("start " + pairlist); 
         //if (l <= 1) {
         //return G; must signal termination to others
         //}
-
         logger.debug("looking for clients");
         DistHashTable<Integer, GenPolynomial<C>> theList = new DistHashTable<Integer, GenPolynomial<C>>(
                         "localhost", DHT_PORT);
@@ -326,6 +326,7 @@ public class GroebnerBaseDistributedEC<C extends RingElem<C>> extends GroebnerBa
         logger.debug("cf.terminate()");
         cf.terminate();
         logger.debug("theList.terminate()");
+        theList.clear();
         theList.terminate();
         logger.info("" + pairlist);
         return G;
@@ -355,6 +356,7 @@ public class GroebnerBaseDistributedEC<C extends RingElem<C>> extends GroebnerBa
         R.run();
 
         pairChannel.close();
+        //master only: theList.clear();
         theList.terminate();
         cf.terminate();
         return;
@@ -543,7 +545,7 @@ class ReducerServerEC<C extends RingElem<C>> implements Runnable {
                 try {
                     sleeps++;
                     if (sleeps % 10 == 0) {
-                        logger.info(" reducer is sleeping");
+                        logger.info("reducer is sleeping, pool = " + pool);
                     }
                     Thread.sleep(100);
                 } catch (InterruptedException e) {
@@ -787,7 +789,7 @@ class ReducerClientEC<C extends RingElem<C>> implements Runnable {
                 e.printStackTrace();
             }
         }
-        logger.info("terminated, done " + reduction + " reductions");
+        logger.info("terminated, " + reduction + " reductions, " + theList.size() + " polynomials");
         pairChannel.close();
     }
 }

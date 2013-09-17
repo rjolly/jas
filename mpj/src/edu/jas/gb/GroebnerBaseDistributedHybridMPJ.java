@@ -102,7 +102,7 @@ public class GroebnerBaseDistributedHybridMPJ<C extends RingElem<C>> extends Gro
     /**
      * Constructor.
      */
-    public GroebnerBaseDistributedHybridMPJ() {
+    public GroebnerBaseDistributedHybridMPJ() throws IOException {
         this(DEFAULT_THREADS);
     }
 
@@ -111,7 +111,7 @@ public class GroebnerBaseDistributedHybridMPJ<C extends RingElem<C>> extends Gro
      * Constructor.
      * @param threads number of threads to use.
      */
-    public GroebnerBaseDistributedHybridMPJ(int threads) {
+    public GroebnerBaseDistributedHybridMPJ(int threads) throws IOException {
         this(threads, new ThreadPool(threads));
     }
 
@@ -121,7 +121,7 @@ public class GroebnerBaseDistributedHybridMPJ<C extends RingElem<C>> extends Gro
      * @param threads number of threads to use.
      * @param threadsPerNode threads per node to use.
      */
-    public GroebnerBaseDistributedHybridMPJ(int threads, int threadsPerNode) {
+    public GroebnerBaseDistributedHybridMPJ(int threads, int threadsPerNode) throws IOException {
         this(threads, threadsPerNode, new ThreadPool(threads));
     }
 
@@ -131,7 +131,7 @@ public class GroebnerBaseDistributedHybridMPJ<C extends RingElem<C>> extends Gro
      * @param threads number of threads to use.
      * @param pool ThreadPool to use.
      */
-    public GroebnerBaseDistributedHybridMPJ(int threads, ThreadPool pool) {
+    public GroebnerBaseDistributedHybridMPJ(int threads, ThreadPool pool) throws IOException {
         this(threads, DEFAULT_THREADS_PER_NODE, pool);
     }
 
@@ -142,7 +142,8 @@ public class GroebnerBaseDistributedHybridMPJ<C extends RingElem<C>> extends Gro
      * @param threadsPerNode threads per node to use.
      * @param pl pair selection strategy
      */
-    public GroebnerBaseDistributedHybridMPJ(int threads, int threadsPerNode, PairList<C> pl) {
+    public GroebnerBaseDistributedHybridMPJ(int threads, int threadsPerNode, PairList<C> pl)
+                    throws IOException {
         this(threads, threadsPerNode, new ThreadPool(threads), pl);
     }
 
@@ -152,7 +153,8 @@ public class GroebnerBaseDistributedHybridMPJ<C extends RingElem<C>> extends Gro
      * @param threads number of threads to use.
      * @param threadsPerNode threads per node to use.
      */
-    public GroebnerBaseDistributedHybridMPJ(int threads, int threadsPerNode, ThreadPool pool) {
+    public GroebnerBaseDistributedHybridMPJ(int threads, int threadsPerNode, ThreadPool pool)
+                    throws IOException {
         this(threads, threadsPerNode, pool, new OrderedPairlist<C>());
     }
 
@@ -164,7 +166,8 @@ public class GroebnerBaseDistributedHybridMPJ<C extends RingElem<C>> extends Gro
      * @param pool ThreadPool to use.
      * @param pl pair selection strategy
      */
-    public GroebnerBaseDistributedHybridMPJ(int threads, int threadsPerNode, ThreadPool pool, PairList<C> pl) {
+    public GroebnerBaseDistributedHybridMPJ(int threads, int threadsPerNode, ThreadPool pool, PairList<C> pl)
+                    throws IOException {
         super(new ReductionPar<C>(), pl);
         this.engine = MPJEngine.getCommunicator();
         int size = engine.Size();
@@ -190,7 +193,8 @@ public class GroebnerBaseDistributedHybridMPJ<C extends RingElem<C>> extends Gro
         if (pool == null) {
             return;
         }
-        pool.terminate();
+        //pool.terminate();
+        pool.cancel();
     }
 
 
@@ -202,8 +206,14 @@ public class GroebnerBaseDistributedHybridMPJ<C extends RingElem<C>> extends Gro
      *         MPJ client part.
      */
     public List<GenPolynomial<C>> GB(int modv, List<GenPolynomial<C>> F) {
-        if (engine.Rank() == 0) {
-            return GBmaster(modv, F);
+        try {
+            if (engine.Rank() == 0) {
+                return GBmaster(modv, F);
+            }
+        } catch (IOException e) {
+            logger.info("GBmaster: " + e);
+            e.printStackTrace();
+            return null;
         }
         pool.terminate(); // not used on clients
         try {
@@ -222,7 +232,7 @@ public class GroebnerBaseDistributedHybridMPJ<C extends RingElem<C>> extends Gro
      * @param F polynomial list.
      * @return GB(F) a Groebner base of F or null, if a IOException occurs.
      */
-    public List<GenPolynomial<C>> GBmaster(int modv, List<GenPolynomial<C>> F) {
+    public List<GenPolynomial<C>> GBmaster(int modv, List<GenPolynomial<C>> F) throws IOException {
         long t = System.currentTimeMillis();
         GenPolynomial<C> p;
         List<GenPolynomial<C>> G = new ArrayList<GenPolynomial<C>>();
@@ -267,8 +277,10 @@ public class GroebnerBaseDistributedHybridMPJ<C extends RingElem<C>> extends Gro
         logger.info("pairlist " + pairlist + ": " + unused);
 
         logger.debug("looking for clients");
-        DistHashTableMPJ<Integer, GenPolynomial<C>> theList = new DistHashTableMPJ<Integer, GenPolynomial<C>>(engine);
+        DistHashTableMPJ<Integer, GenPolynomial<C>> theList = new DistHashTableMPJ<Integer, GenPolynomial<C>>(
+                        engine);
         theList.init();
+
         List<GenPolynomial<C>> al = pairlist.getList();
         for (int i = 0; i < al.size(); i++) {
             // no wait required
@@ -282,7 +294,8 @@ public class GroebnerBaseDistributedHybridMPJ<C extends RingElem<C>> extends Gro
         HybridReducerServerMPJ<C> R;
         logger.info("using pool = " + pool);
         for (int i = 1; i < threads; i++) {
-            R = new HybridReducerServerMPJ<C>(i, threadsPerNode, finner, engine, theList, pairlist);
+            MPJChannel chan = new MPJChannel(engine, i); // closed in server
+            R = new HybridReducerServerMPJ<C>(i, threadsPerNode, finner, chan, theList, pairlist);
             pool.addJob(R);
             //logger.info("server submitted " + R);
         }
@@ -305,7 +318,7 @@ public class GroebnerBaseDistributedHybridMPJ<C extends RingElem<C>> extends Gro
         List<GenPolynomial<C>> Gp;
         Gp = minimalGB(G); // not jet distributed but threaded
         time = System.currentTimeMillis() - time;
-        logger.info("parallel gbmi time = " + time);
+        logger.debug("parallel gbmi time = " + time);
         G = Gp;
         logger.info("server theList.terminate() " + theList.size());
         theList.terminate();
@@ -325,10 +338,11 @@ public class GroebnerBaseDistributedHybridMPJ<C extends RingElem<C>> extends Gro
             throw new UnsupportedOperationException("only master at rank 0 implemented: " + rank);
         }
         Comm engine = MPJEngine.getCommunicator();
-        MPJChannel chan = new MPJChannel(engine, rank);
 
         DistHashTableMPJ<Integer, GenPolynomial<C>> theList = new DistHashTableMPJ<Integer, GenPolynomial<C>>();
         theList.init();
+
+        MPJChannel chan = new MPJChannel(engine, rank);
 
         ThreadPool pool = new ThreadPool(threadsPerNode);
         logger.info("client using pool = " + pool);
@@ -342,6 +356,7 @@ public class GroebnerBaseDistributedHybridMPJ<C extends RingElem<C>> extends Gro
         pool.terminate();
         logger.info("client pool.terminate()");
 
+        chan.close();
         theList.terminate();
         return;
     }
@@ -448,10 +463,10 @@ class HybridReducerServerMPJ<C extends RingElem<C>> implements Runnable {
     private final Terminator finner;
 
 
-    private MPJChannel pairChannel;
+    private final MPJChannel pairChannel;
 
 
-    protected transient final Comm engine;
+    //protected transient final Comm engine;
 
 
     private final DistHashTableMPJ<Integer, GenPolynomial<C>> theList;
@@ -477,16 +492,16 @@ class HybridReducerServerMPJ<C extends RingElem<C>> implements Runnable {
      * @param r MPJ rank of partner.
      * @param tpn number of threads per node
      * @param fin terminator
-     * @param engine MPJ engine
+     * @param chan MPJ channel
      * @param dl distributed hash table
      * @param L ordered pair list
      */
-    HybridReducerServerMPJ(int r, int tpn, Terminator fin, Comm engine,
-			   DistHashTableMPJ<Integer, GenPolynomial<C>> dl, PairList<C> L) {
+    HybridReducerServerMPJ(int r, int tpn, Terminator fin, MPJChannel chan,
+                    DistHashTableMPJ<Integer, GenPolynomial<C>> dl, PairList<C> L) {
         rank = r;
         threadsPerNode = tpn;
         finner = fin;
-        this.engine = engine;
+        this.pairChannel = chan;
         theList = dl;
         pairlist = L;
         //logger.info("reducer server created " + this);
@@ -497,15 +512,15 @@ class HybridReducerServerMPJ<C extends RingElem<C>> implements Runnable {
      * Work loop.
      * @see java.lang.Runnable#run()
      */
-    //JAVA6only: @Override
+    @Override
     public void run() {
         //logger.info("reducer server running with " + engine);
-        try {
-            pairChannel = new MPJChannel(engine, rank); //,pairTag
-        } catch (IOException e) {
-            e.printStackTrace();
-            return;
-        }
+        // try {
+        //     pairChannel = new MPJChannel(engine, rank); //,pairTag
+        // } catch (IOException e) {
+        //     e.printStackTrace();
+        //     return;
+        // }
         if (logger.isInfoEnabled()) {
             logger.info("reducer server running: pairChannel = " + pairChannel);
         }
@@ -516,7 +531,7 @@ class HybridReducerServerMPJ<C extends RingElem<C>> implements Runnable {
 
         // start receiver
         HybridReducerReceiverMPJ<C> receiver = new HybridReducerReceiverMPJ<C>(rank, finner, active,
-						       pairChannel, theList, pairlist);
+                        pairChannel, theList, pairlist);
         receiver.start();
 
         Pair<C> pair;
@@ -620,7 +635,7 @@ class HybridReducerServerMPJ<C extends RingElem<C>> implements Runnable {
             }
         }
         int d = active.get();
-        if ( d > 0 ) {
+        if (d > 0) {
             logger.info("remaining active tasks = " + d);
         }
         receiver.terminate();
@@ -692,7 +707,7 @@ class HybridReducerReceiverMPJ<C extends RingElem<C>> extends Thread {
      * @param L ordered pair list
      */
     HybridReducerReceiverMPJ(int r, Terminator fin, AtomicInteger a, MPJChannel pc,
-			     DistHashTableMPJ<Integer, GenPolynomial<C>> dl, PairList<C> L) {
+                    DistHashTableMPJ<Integer, GenPolynomial<C>> dl, PairList<C> L) {
         rank = r;
         active = a;
         //threadsPerNode = tpn;
@@ -882,7 +897,7 @@ class HybridReducerClientMPJ<C extends RingElem<C>> implements Runnable {
      * Work loop.
      * @see java.lang.Runnable#run()
      */
-    //JAVA6only: @Override
+    @Override
     public void run() {
         if (debug) {
             logger.info("pairChannel   = " + pairChannel + " reducer client running");
@@ -969,7 +984,7 @@ class HybridReducerClientMPJ<C extends RingElem<C>> implements Runnable {
                 if (pi != null && pj != null) {
                     S = red.SPolynomial(pi, pj);
                     //System.out.println("S   = " + S);
-		    logger.info("ht(S) = " + S.leadingExpVector());
+                    logger.info("ht(S) = " + S.leadingExpVector());
                     if (S.isZERO()) {
                         // pair.setZero(); does not work in dist
                         H = S;

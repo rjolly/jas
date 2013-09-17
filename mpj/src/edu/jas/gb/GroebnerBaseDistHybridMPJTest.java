@@ -44,7 +44,7 @@ public class GroebnerBaseDistHybridMPJTest extends TestCase {
     /**
      * main
      */
-    public static void main(String[] args) {
+    public static void main(String[] args) throws IOException {
         BasicConfigurator.configure();
         engine = MPJEngine.getCommunicator(args);
         junit.textui.TestRunner.run(suite());
@@ -137,13 +137,18 @@ public class GroebnerBaseDistHybridMPJTest extends TestCase {
 
     @Override
     protected void setUp() {
-        threads = engine.Size();
-        BigRational coeff = new BigRational(9);
-        fac = new GenPolynomialRing<BigRational>(coeff, rl);
-        a = b = c = d = e = null;
-        bbseq = new GroebnerBaseSeq<BigRational>();
-        bbdist = new GroebnerBaseDistributedHybridMPJ<BigRational>(threads,threadsPerNode);
-        //bbdists = new GroebnerBaseDistributedHybridMPJ<BigRational>(threads,threadsPerNode, new OrderedSyzPairlist<BigRational>());
+        try {
+            threads = engine.Size();
+            BigRational coeff = new BigRational(9);
+            fac = new GenPolynomialRing<BigRational>(coeff, rl);
+            a = b = c = d = e = null;
+            bbseq = new GroebnerBaseSeq<BigRational>();
+            bbdist = new GroebnerBaseDistributedHybridMPJ<BigRational>(threads, threadsPerNode);
+            //bbdists = new GroebnerBaseDistributedHybridMPJ<BigRational>(threads,threadsPerNode, new OrderedSyzPairlist<BigRational>());
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+
     }
 
 
@@ -175,19 +180,19 @@ public class GroebnerBaseDistHybridMPJTest extends TestCase {
         if (engine.Rank() == 0) {
             L.add(a);
             L.add(b);
-            System.out.println("L = " + L );
+            System.out.println("L = " + L);
         }
 
         L = bbdist.GB(L);
         if (engine.Rank() == 0) {
-            System.out.println("L0 = " + L );
+            System.out.println("L0 = " + L);
             assertTrue("isGB( { a } )", bbseq.isGB(L));
             L.add(b);
         }
         if (mpjBug) {
             try {
                 Thread.sleep(100);
-	    } catch (InterruptedException e) {
+            } catch (InterruptedException e) {
                 e.printStackTrace();
             }
             return;
@@ -195,30 +200,30 @@ public class GroebnerBaseDistHybridMPJTest extends TestCase {
 
         L = bbdist.GB(L);
         if (engine.Rank() == 0) {
-            System.out.println("L1 = " + L );
+            System.out.println("L1 = " + L);
             assertTrue("isGB( { a, b } )", bbseq.isGB(L));
             L.add(c);
         }
 
         L = bbdist.GB(L);
         if (engine.Rank() == 0) {
-            System.out.println("L2 = " + L );
+            System.out.println("L2 = " + L);
             assertTrue("isGB( { a, b, c } )", bbseq.isGB(L));
             L.add(d);
         }
 
         L = bbdist.GB(L);
         if (engine.Rank() == 0) {
-            System.out.println("L3 = " + L );
+            System.out.println("L3 = " + L);
             assertTrue("isGB( { a, b, c, d } )", bbseq.isGB(L));
             L.add(e);
         }
         L = bbdist.GB(L);
         if (engine.Rank() == 0) {
-            System.out.println("L4 = " + L );
+            System.out.println("L4 = " + L);
             assertTrue("isGB( { a, b, c, d, e } )", bbseq.isGB(L));
         } else {
-            System.out.println("rank = " + engine.Rank() );
+            System.out.println("rank = " + engine.Rank());
         }
     }
 

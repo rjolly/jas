@@ -68,7 +68,7 @@ public class GroebnerBaseDistributedMPJ<C extends RingElem<C>> extends GroebnerB
     /**
      * Constructor.
      */
-    public GroebnerBaseDistributedMPJ() {
+    public GroebnerBaseDistributedMPJ() throws IOException {
         this(DEFAULT_THREADS);
     }
 
@@ -77,7 +77,7 @@ public class GroebnerBaseDistributedMPJ<C extends RingElem<C>> extends GroebnerB
      * Constructor.
      * @param threads number of threads to use.
      */
-    public GroebnerBaseDistributedMPJ(int threads) {
+    public GroebnerBaseDistributedMPJ(int threads) throws IOException {
         this(threads, new ThreadPool(threads));
     }
 
@@ -87,7 +87,7 @@ public class GroebnerBaseDistributedMPJ<C extends RingElem<C>> extends GroebnerB
      * @param threads number of threads to use.
      * @param pool ThreadPool to use.
      */
-    public GroebnerBaseDistributedMPJ(int threads, ThreadPool pool) {
+    public GroebnerBaseDistributedMPJ(int threads, ThreadPool pool) throws IOException {
         this(threads, pool, new OrderedPairlist<C>());
     }
 
@@ -97,7 +97,7 @@ public class GroebnerBaseDistributedMPJ<C extends RingElem<C>> extends GroebnerB
      * @param threads number of threads to use.
      * @param pl pair selection strategy
      */
-    public GroebnerBaseDistributedMPJ(int threads, PairList<C> pl) {
+    public GroebnerBaseDistributedMPJ(int threads, PairList<C> pl) throws IOException {
         this(threads, new ThreadPool(threads), pl);
     }
 
@@ -108,7 +108,7 @@ public class GroebnerBaseDistributedMPJ<C extends RingElem<C>> extends GroebnerB
      * @param pool ThreadPool to use.
      * @param pl pair selection strategy
      */
-    public GroebnerBaseDistributedMPJ(int threads, ThreadPool pool, PairList<C> pl) {
+    public GroebnerBaseDistributedMPJ(int threads, ThreadPool pool, PairList<C> pl) throws IOException {
         super(new ReductionPar<C>(), pl);
         this.engine = MPJEngine.getCommunicator();
         int size = engine.Size();
@@ -132,7 +132,8 @@ public class GroebnerBaseDistributedMPJ<C extends RingElem<C>> extends GroebnerB
         if (pool == null) {
             return;
         }
-        pool.terminate();
+        //pool.terminate();
+        pool.cancel();
     }
 
 
@@ -144,8 +145,14 @@ public class GroebnerBaseDistributedMPJ<C extends RingElem<C>> extends GroebnerB
      *         MPJ client part.
      */
     public List<GenPolynomial<C>> GB(int modv, List<GenPolynomial<C>> F) {
-        if (engine.Rank() == 0) {
-            return GBmaster(modv, F);
+        try {
+            if (engine.Rank() == 0) {
+                return GBmaster(modv, F);
+            }
+        } catch (IOException e) {
+            logger.info("GBmaster: " + e);
+            e.printStackTrace();
+            return null;
         }
         pool.terminate(); // not used on clients
         try {
@@ -164,7 +171,7 @@ public class GroebnerBaseDistributedMPJ<C extends RingElem<C>> extends GroebnerB
      * @param F polynomial list.
      * @return GB(F) a Groebner base of F or null, if a IOException occurs.
      */
-    public List<GenPolynomial<C>> GBmaster(int modv, List<GenPolynomial<C>> F) {
+    public List<GenPolynomial<C>> GBmaster(int modv, List<GenPolynomial<C>> F) throws IOException {
         List<GenPolynomial<C>> G = new ArrayList<GenPolynomial<C>>();
         GenPolynomial<C> p;
         PairList<C> pairlist = null;
@@ -204,11 +211,13 @@ public class GroebnerBaseDistributedMPJ<C extends RingElem<C>> extends GroebnerB
         //if (l <= 1) {
         //return G; must signal termination to others
         //}
-        logger.debug("initialize DHT, done pairlist: " + unused);
+        logger.info("done pairlist, initialize DHT: " + unused);
 
         DistHashTableMPJ<Integer, GenPolynomial<C>> theList = new DistHashTableMPJ<Integer, GenPolynomial<C>>(
                         engine);
         theList.init();
+        //logger.info("done DHT: " + theList);
+
         List<GenPolynomial<C>> al = pairlist.getList();
         for (int i = 0; i < al.size(); i++) {
             // no wait required
@@ -222,7 +231,8 @@ public class GroebnerBaseDistributedMPJ<C extends RingElem<C>> extends GroebnerB
         MPJReducerServer<C> R;
         for (int i = 1; i < threads; i++) {
             logger.debug("addJob " + i + " of " + threads);
-            R = new MPJReducerServer<C>(i, fin, engine, theList, pairlist);
+            MPJChannel chan = new MPJChannel(engine, i); // closed in server
+            R = new MPJReducerServer<C>(i, fin, chan, theList, pairlist);
             pool.addJob(R);
         }
         logger.debug("main loop waiting");
@@ -257,14 +267,16 @@ public class GroebnerBaseDistributedMPJ<C extends RingElem<C>> extends GroebnerB
             throw new UnsupportedOperationException("only master at rank 0 implemented: " + rank);
         }
         Comm engine = MPJEngine.getCommunicator();
-        MPJChannel chan = new MPJChannel(engine, rank);
 
         DistHashTableMPJ<Integer, GenPolynomial<C>> theList = new DistHashTableMPJ<Integer, GenPolynomial<C>>();
         theList.init();
 
+        MPJChannel chan = new MPJChannel(engine, rank);
+
         MPJReducerClient<C> R = new MPJReducerClient<C>(chan, theList);
         R.run();
 
+        chan.close();
         theList.terminate();
         return;
     }
@@ -371,13 +383,13 @@ class MPJReducerServer<C extends RingElem<C>> implements Runnable {
     /*
      * Underlying MPJ engine.
      */
-    protected transient final Comm engine;
+    //protected transient final Comm engine;
 
 
     /*
      * MPJ channel.
      */
-    private MPJChannel pairChannel;
+    private final MPJChannel pairChannel;
 
 
     /*
@@ -405,17 +417,19 @@ class MPJReducerServer<C extends RingElem<C>> implements Runnable {
      * Constructor.
      * @param r MPJ rank of partner.
      * @param fin termination coordinator to use.
-     * @param e MPJ communicator to use.
+     * @param c MPJ channel to use.
      * @param dl DHT to use.
      * @param L pair selection strategy
      */
-    MPJReducerServer(int r, Terminator fin, Comm e, DistHashTableMPJ<Integer, GenPolynomial<C>> dl,
+    MPJReducerServer(int r, Terminator fin, MPJChannel c, DistHashTableMPJ<Integer, GenPolynomial<C>> dl,
                     PairList<C> L) {
         rank = r;
         finaler = fin;
-        engine = e;
+        //engine = e;
         theList = dl;
         pairlist = L;
+        pairChannel = c;
+        logger.debug("reducer server constructor: "); // + r);
     }
 
 
@@ -423,13 +437,13 @@ class MPJReducerServer<C extends RingElem<C>> implements Runnable {
      * Main method.
      */
     public void run() {
-        //logger.debug("reducer server running: " + this);
-        try {
-            pairChannel = new MPJChannel(engine, rank);
-        } catch (IOException e) {
-            e.printStackTrace();
-            return;
-        }
+        logger.debug("reducer server running: "); // + this);
+        // try {
+        //     pairChannel = new MPJChannel(engine, rank);
+        // } catch (IOException e) {
+        //     e.printStackTrace();
+        //     return;
+        // }
         if (logger.isInfoEnabled()) {
             logger.info("reducer server running: pairChannel = " + pairChannel);
         }
@@ -618,7 +632,7 @@ class MPJReducerClient<C extends RingElem<C>> implements Runnable {
      * Main run method.
      */
     public void run() {
-        logger.info("pairChannel = " + pairChannel + " reducer client running");
+        logger.debug("reducer client running");
         Pair<C> pair = null;
         GenPolynomial<C> pi, pj, ps;
         GenPolynomial<C> S;

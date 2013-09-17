@@ -343,7 +343,7 @@ public class GroebnerBaseDistributedHybridEC<C extends RingElem<C>> extends Groe
         //if (l <= 1) {
         //return G; must signal termination to others
         //}
-        logger.info("pairlist " + pairlist);
+        logger.info("start " + pairlist); 
         DistHashTable<Integer, GenPolynomial<C>> theList = new DistHashTable<Integer, GenPolynomial<C>>(
                         "localhost", DHT_PORT);
         theList.init();
@@ -392,6 +392,7 @@ public class GroebnerBaseDistributedHybridEC<C extends RingElem<C>> extends Groe
         //logger.info("server not pool.terminate() " + pool);
         //pool.terminate();
         logger.debug("server theList.terminate() " + theList.size());
+        theList.clear();
         theList.terminate();
         t = System.currentTimeMillis() - t;
         logger.info("server GB end, time = " + t + ", " + pairlist.toString());
@@ -434,6 +435,7 @@ public class GroebnerBaseDistributedHybridEC<C extends RingElem<C>> extends Groe
         pairChannel.close();
         logger.debug("client pairChannel.close()");
 
+        //master only: theList.clear();
         theList.terminate();
         cf.terminate();
         logger.info("client cf.terminate()");
@@ -532,7 +534,6 @@ public class GroebnerBaseDistributedHybridEC<C extends RingElem<C>> extends Groe
  * Distributed server reducing worker proxy threads.
  * @param <C> coefficient type
  */
-
 class HybridReducerServerEC<C extends RingElem<C>> implements Runnable {
 
 
@@ -671,7 +672,7 @@ class HybridReducerServerEC<C extends RingElem<C>> implements Runnable {
                 try {
                     sleeps++;
                     //if (sleeps % 10 == 0) {
-                    logger.info("waiting for reducers, remaining = " + finner.getJobs());
+                    logger.info("waiting for reducers, remaining = " + finner);
                     //}
                     Thread.sleep(100);
                 } catch (InterruptedException e) {
@@ -753,7 +754,6 @@ class HybridReducerServerEC<C extends RingElem<C>> implements Runnable {
  * Distributed server receiving worker thread.
  * @param <C> coefficient type
  */
-
 class HybridReducerReceiverEC<C extends RingElem<C>> extends Thread {
 
 
@@ -937,7 +937,6 @@ class HybridReducerReceiverEC<C extends RingElem<C>> extends Thread {
 /**
  * Distributed clients reducing worker threads.
  */
-
 class HybridReducerClientEC<C extends RingElem<C>> implements Runnable {
 
 
@@ -1152,7 +1151,7 @@ class HybridReducerClientEC<C extends RingElem<C>> implements Runnable {
             }
             logger.info("received acknowledgment ");
         }
-        logger.info("terminated, done " + reduction + " reductions");
+        logger.info("terminated, " + reduction + " reductions, " + theList.size() + " polynomials");
         if (doEnd) {
             try {
                 pairChannel.send(resultTag, new GBTransportMessEnd());
@@ -1168,7 +1167,6 @@ class HybridReducerClientEC<C extends RingElem<C>> implements Runnable {
 /**
  * Objects of this class are to be send to a ExecutableServer.
  */
-
 class GBHybridExerClient<C extends RingElem<C>> implements RemoteExecutable {
 
 
